@@ -1,7 +1,9 @@
 import os
 import pathlib
+import openai
 from io import BytesIO
 from uuid import uuid4
+from .sdk import PromptEngine
 
 import uvicorn
 from fastapi import APIRouter, FastAPI, UploadFile
@@ -137,12 +139,47 @@ class Agent:
         except Exception as e:
             raise
 
-    async def execute_step(self, task_id: str, step_request: StepRequestBody) -> Step:
-        """
-        Create a step for the task.
-        """
-        raise NotImplementedError
+    async def execute_step(self, task_id: str, step_request):
+        try: # in the tutorial, the try block doesnt begin until the chat_completion_kwargs
+            # Fetch the task details
+            task = await self.db.get_task(task_id)
 
+            # Create a step
+            step = await self.db.create_step(task_id=task_id, input=step_request, is_last=True)
+
+            # Assuming task.input is accessible and contains the necessary task input
+            system_prompt = self.prompt_engine.load_prompt("system_format")
+            task_kwargs = {
+                "task": task.input,
+                "abilities": self.abilities.list_abilities_for_prompt(),
+            }
+            task_prompt = self.prompt_engine.load_prompt("task-step", **task_kwargs)
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": task_prompt},
+            ]
+            
+            # Define the parameters for the chat completion request
+            chat_completion_kwargs = {  # this is where the try block begins in the tutorial
+                "messages": messages,
+                "model": "gpt-3.5-turbo",
+            }
+            # Make the chat completion request and parse the response
+            chat_response = await chat_completion_request(**chat_completion_kwargs)
+            answer = json.loads(chat_response)["choices"][0]["message"]["content"]
+            
+            # Log the answer for debugging purposes
+            LOG.info(pprint.pformat(answer))
+            
+        except json.JSONDecodeError as e:
+            # Handle JSON decoding Errors
+            LOG.error(f"Unable to decode chat response: {e}")
+        except Exception as e:
+            # Handle other exceptions
+            LOG.error(f"Unable to generate chat response: {e}")
+        
+        return step
     async def get_step(self, task_id: str, step_id: str) -> Step:
         """
         Get a step by ID.

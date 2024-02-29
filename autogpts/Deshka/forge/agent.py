@@ -120,6 +120,7 @@ class ForgeAgent(Agent):
         if they want the agent to continue or not.
         """
         # An example that
+        task = await self.db.get_task(task_id)
         step = await self.db.create_step(
             task_id=task_id, input=step_request, is_last=True
         )
